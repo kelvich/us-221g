@@ -4,11 +4,13 @@ import plotly.express as px
 from sqlalchemy import create_engine
 import json
 from datetime import datetime
+import os
+
 
 # Initialize connection to postgres
 @st.cache_resource
 def init_connection():
-    return create_engine('postgresql://localhost/lawsuits')
+    return create_engine(os.getenv('DATABASE_URL'))
 
 # Load data with caching
 @st.cache_data
