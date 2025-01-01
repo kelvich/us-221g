@@ -6,7 +6,6 @@ import json
 from datetime import datetime
 import os
 
-
 # Initialize connection to postgres
 @st.cache_resource
 def init_connection():
@@ -16,13 +15,9 @@ def init_connection():
 @st.cache_data
 def load_data():
     conn = init_connection()
+    # Using SELECT * to get all columns
     query = """
-        SELECT 
-            filed,
-            law360_data,
-            gpt_summary,
-            agency_manually_set,
-            title
+        SELECT *
         FROM lawsuits
         WHERE gpt_summary is not null and law360_data is not null
     """
@@ -36,10 +31,21 @@ def load_data():
     df['gpt_summary'] = df['gpt_summary'].apply(lambda x: json.loads(x) if isinstance(x, str) else x)
     df['law360_data'] = df['law360_data'].apply(lambda x: json.loads(x) if isinstance(x, str) else x)
     
-    # Extract relevant fields
+    # Extract relevant fields for filtering
     df['country'] = df['gpt_summary'].apply(lambda x: x.get('likely_country_of_origin', 'Unknown'))
     df['agency_manually_set'] = df['agency_manually_set'].apply(lambda x: x if x is not None else 'Unknown')
     df['defendant_agencies'] = df['gpt_summary'].apply(lambda x: x.get('defendant_agency', []))
+    # Convert 221g_score to integer with strict error handling
+    def extract_221g_score(x):
+        try:
+            score = x.get('221g_score')
+            if score is not None:
+                return int(float(score))
+            return 0
+        except (ValueError, TypeError):
+            return 0
+            
+    df['221g_score'] = df['gpt_summary'].apply(extract_221g_score)
     
     # Ensure defendant_agencies is always a list and contains no None values
     df['defendant_agencies'] = df['defendant_agencies'].apply(lambda x: [str(a) for a in (x if isinstance(x, list) else []) if a is not None])
@@ -84,6 +90,17 @@ selected_agencies = st.sidebar.multiselect(
     default=[]
 )
 
+# 221g Score filter
+min_221g = float(df['221g_score'].min())
+max_221g = float(df['221g_score'].max())
+selected_221g_range = st.sidebar.slider(
+    '221g Score Range',
+    min_value=min_221g,
+    max_value=max_221g,
+    value=(min_221g, max_221g),
+    step=0.1
+)
+
 # Filter data
 date_mask = (df['filed_date'] >= date_range[0]) & (df['filed_date'] <= date_range[1])
 
@@ -98,7 +115,10 @@ if selected_agencies:
 else:
     agency_mask = pd.Series(True, index=df.index)
 
-filtered_df = df[date_mask & country_mask & agency_mask]
+# Add 221g score filter
+score_mask = (df['221g_score'] >= selected_221g_range[0]) & (df['221g_score'] <= selected_221g_range[1])
+
+filtered_df = df[date_mask & country_mask & agency_mask & score_mask]
 
 # Time series plot
 st.header('Lawsuits Over Time')
@@ -243,7 +263,9 @@ with col3:
 
 # Sample data table with pagination
 st.header('Selected Cases')
-sample_columns = ['filed_date', 'country', 'defendant_agencies', 'title']
+
+# Get all columns from the dataframe
+all_columns = filtered_df.columns.tolist()
 
 # Pagination setup
 rows_per_page = 30
@@ -262,7 +284,7 @@ with left_col:
     if st.button("← Previous", disabled=(st.session_state.page_number == 1)):
         st.session_state.page_number -= 1
 
-# Page indicator (with reduced vertical padding)
+# Page indicator
 with center_col:
     st.markdown(
         f"<p style='text-align: center; margin: 0; padding: 5px;'>Page {st.session_state.page_number} of {total_pages}</p>", 
@@ -278,18 +300,17 @@ with right_col:
 start_idx = (st.session_state.page_number - 1) * rows_per_page
 end_idx = min(start_idx + rows_per_page, total_rows)
 
-# Display paginated data with custom height
+# Display paginated data with all columns
 st.dataframe(
-    filtered_df[sample_columns]
+    filtered_df[all_columns]
     .sort_values('filed_date', ascending=False)
     .iloc[start_idx:end_idx],
     use_container_width=True,
-    height=1090  # Increased height to fit 50 rows without scrolling
+    height=1090
 )
 
-# Download filtered data
-filtered_df_download = filtered_df[['filed_date', 'country', 'defendant_agencies', 'title']]
-csv = filtered_df_download.to_csv(index=False)
+# Download filtered data with all columns
+csv = filtered_df.to_csv(index=False)
 st.download_button(
     label="Download filtered data as CSV",
     data=csv,
