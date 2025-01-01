@@ -91,14 +91,14 @@ selected_agencies = st.sidebar.multiselect(
 )
 
 # 221g Score filter
-min_221g = float(df['221g_score'].min())
-max_221g = float(df['221g_score'].max())
+min_221g = int(df['221g_score'].min())
+max_221g = int(df['221g_score'].max())
 selected_221g_range = st.sidebar.slider(
     '221g Score Range',
     min_value=min_221g,
     max_value=max_221g,
     value=(min_221g, max_221g),
-    step=0.1
+    step=1
 )
 
 # Filter data
