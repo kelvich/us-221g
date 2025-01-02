@@ -119,7 +119,17 @@ def load_paginated_data(start_date, end_date, countries=None, agencies=None,
     
     # Query for paginated data
     query = f"""
-        SELECT *
+        SELECT
+            filed,
+            title,
+            'https://www.pacermonitor.com/' || pacermonitor_link as pacermonitor_link,
+            'https://www.law360.com/cases/' || law360_id || '/dockets' as law360_link,
+            defendant,
+            agency_manually_set as defendant_agency,
+            nature_of_suit,
+            cause,
+            law360_data,
+            gpt_summary
         FROM lawsuits
         WHERE {where_clause}
         ORDER BY filed DESC
@@ -305,10 +315,33 @@ paginated_df = load_paginated_data(
     rows_per_page
 )
 
+# Create a copy of the dataframe for display
+display_df = paginated_df.copy()
+
+# Column config for clickable links
+column_config = {}
+if 'pacermonitor_link' in display_df.columns:
+    column_config["pacermonitor_link"] = st.column_config.LinkColumn(
+        "Pacermonitor",
+        display_text="View on PM",
+        help="Click to view case on PACER Monitor",
+        validate="^https://.*"
+    )
+if 'law360_link' in display_df.columns:
+    column_config["law360_link"] = st.column_config.LinkColumn(
+        "Law360",
+        display_text="View on L360",
+        help="Click to view case on Law360",
+        validate="^https://.*"
+    )
+
+# Display the dataframe with clickable links
 st.dataframe(
-    paginated_df,
+    display_df,
     use_container_width=True,
-    height=1090
+    height=1088,
+    column_config=column_config,
+    hide_index=True
 )
 
 # Download filtered data
