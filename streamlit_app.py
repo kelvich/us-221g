@@ -31,6 +31,18 @@ def load_metadata():
 def load_time_series(start_date, end_date, countries=None, agencies=None, score_range=None):
     conn = init_connection()
     
+    # First, create a complete date range with all months
+    query_all_months = f"""
+        WITH RECURSIVE date_range AS (
+            SELECT DATE_TRUNC('month', '{start_date}'::date)::date AS month
+            UNION ALL
+            SELECT (month + INTERVAL '1 month')::date
+            FROM date_range
+            WHERE month < DATE_TRUNC('month', '{end_date}'::date)
+        )
+        SELECT month FROM date_range
+    """
+    
     # Build WHERE clause based on filters
     where_clauses = [
         "gpt_summary is not null",
@@ -51,15 +63,29 @@ def load_time_series(start_date, end_date, countries=None, agencies=None, score_
     
     where_clause = " AND ".join(where_clauses)
     
-    # Query for time series
+    # Query that includes all months and joins with actual data
     query = f"""
+        WITH RECURSIVE date_range AS (
+            SELECT DATE_TRUNC('month', '{start_date}'::date)::date AS month
+            UNION ALL
+            SELECT (month + INTERVAL '1 month')::date
+            FROM date_range
+            WHERE month < DATE_TRUNC('month', '{end_date}'::date)
+        ),
+        lawsuit_counts AS (
+            SELECT 
+                DATE_TRUNC('month', filed)::date as month,
+                COUNT(*) as count
+            FROM lawsuits
+            WHERE {where_clause}
+            GROUP BY DATE_TRUNC('month', filed)::date
+        )
         SELECT 
-            DATE_TRUNC('month', filed) as month,
-            COUNT(*) as count
-        FROM lawsuits
-        WHERE {where_clause}
-        GROUP BY DATE_TRUNC('month', filed)
-        ORDER BY month
+            dr.month,
+            COALESCE(lc.count, 0) as count
+        FROM date_range dr
+        LEFT JOIN lawsuit_counts lc ON dr.month = lc.month
+        ORDER BY dr.month
     """
     
     return pd.read_sql(query, conn)
